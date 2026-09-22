@@ -40,3 +40,5 @@ uploads/
 # Certificates / secrets
 *.pem
 *.key
+# Private development credentials/notes
+docs/pastingediting
