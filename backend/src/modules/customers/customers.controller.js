@@ -40,6 +40,44 @@ async function createCustomer(req, res, next) {
   }
 }
 
+async function approveCustomer(req, res, next) {
+  try {
+    if (!req.auth) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const { customerId } = req.params;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'customerId is required',
+      });
+    }
+
+    const result =
+      await customersService.approveCustomer({
+        approverUserId: req.auth.userId,
+        companyId: req.auth.companyId,
+        customerId,
+        reason: req.body?.reason,
+        notes: req.body?.notes,
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Customer approved successfully',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createCustomer,
+  approveCustomer,
 };

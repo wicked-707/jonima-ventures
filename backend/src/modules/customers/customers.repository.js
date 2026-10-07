@@ -85,6 +85,233 @@ async function getActiveAgentAssignment({
   return result.rows[0] || null;
 }
 
+async function findCustomerById({
+  companyId,
+  customerId,
+}) {
+  const result = await pool.query(
+    `
+      SELECT
+        c.id,
+        c.company_id,
+        c.customer_number,
+        c.user_id,
+        c.status,
+        c.kyc_status,
+        c.created_by,
+        c.approved_by,
+        c.approved_at,
+        c.created_at,
+        c.updated_at,
+        u.user_number,
+        u.email,
+        u.phone,
+        u.status AS user_status,
+        u.must_change_password,
+        p.first_name,
+        p.middle_name,
+        p.last_name
+      FROM customers c
+      INNER JOIN users u
+        ON u.id = c.user_id
+      INNER JOIN user_profiles p
+        ON p.user_id = u.id
+      WHERE c.id = $1
+        AND c.company_id = $2
+      LIMIT 1
+    `,
+    [customerId, companyId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function approveCustomerTransaction({
+  companyId,
+  customerId,
+  approverUserId,
+  reason,
+  notes,
+}) {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const customerResult = await client.query(
+      `
+        SELECT
+          c.id,
+          c.company_id,
+          c.customer_number,
+          c.user_id,
+          c.status,
+          c.kyc_status,
+          c.created_by,
+          u.status AS user_status
+        FROM customers c
+        INNER JOIN users u
+          ON u.id = c.user_id
+        WHERE c.id = $1
+          AND c.company_id = $2
+        FOR UPDATE
+      `,
+      [customerId, companyId]
+    );
+
+    if (customerResult.rows.length === 0) {
+      const error = new Error('Customer not found');
+      error.statusCode = 404;
+      error.code = 'CUSTOMER_NOT_FOUND';
+      throw error;
+    }
+
+    const customer = customerResult.rows[0];
+
+    if (
+      customer.status !== 'PENDING' &&
+      customer.status !== 'UNDER_REVIEW'
+    ) {
+      const error = new Error(
+        `Customer cannot be approved from status ${customer.status}`
+      );
+
+      error.statusCode = 409;
+      error.code = 'INVALID_CUSTOMER_STATUS';
+      throw error;
+    }
+
+    if (
+      customer.user_status !== 'PENDING' &&
+      customer.user_status !== 'UNDER_REVIEW'
+    ) {
+      const error = new Error(
+        `Customer user cannot be approved from status ${customer.user_status}`
+      );
+
+      error.statusCode = 409;
+      error.code = 'INVALID_CUSTOMER_USER_STATUS';
+      throw error;
+    }
+
+    const updatedCustomerResult = await client.query(
+      `
+        UPDATE customers
+        SET
+          status = 'APPROVED',
+          approved_by = $1,
+          approved_at = NOW()
+        WHERE id = $2
+          AND company_id = $3
+        RETURNING *
+      `,
+      [
+        approverUserId,
+        customerId,
+        companyId,
+      ]
+    );
+
+    const updatedUserResult = await client.query(
+      `
+        UPDATE users
+        SET
+          status = 'APPROVED',
+          approved_by = $1,
+          approved_at = NOW()
+        WHERE id = $2
+          AND company_id = $3
+        RETURNING
+          id,
+          company_id,
+          user_number,
+          email,
+          phone,
+          status,
+          must_change_password,
+          created_by,
+          approved_by,
+          approved_at,
+          created_at,
+          updated_at
+      `,
+      [
+        approverUserId,
+        customer.user_id,
+        companyId,
+      ]
+    );
+
+    const approvalResult = await client.query(
+      `
+        INSERT INTO approval_records (
+          entity_type,
+          entity_id,
+          decision,
+          decided_by,
+          reason,
+          notes
+        )
+        VALUES (
+          'CUSTOMER',
+          $1,
+          'APPROVED',
+          $2,
+          $3,
+          $4
+        )
+        RETURNING *
+      `,
+      [
+        customerId,
+        approverUserId,
+        reason || 'CUSTOMER_APPROVAL',
+        notes || `Customer ${customer.customer_number} approved`,
+      ]
+    );
+
+    const historyResult = await client.query(
+      `
+        INSERT INTO customer_status_history (
+          customer_id,
+          old_status,
+          new_status,
+          reason,
+          changed_by
+        )
+        VALUES (
+          $1,
+          $2,
+          'APPROVED',
+          $3,
+          $4
+        )
+        RETURNING *
+      `,
+      [
+        customerId,
+        customer.status,
+        reason || 'CUSTOMER_APPROVAL',
+        approverUserId,
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      customer: updatedCustomerResult.rows[0],
+      user: updatedUserResult.rows[0],
+      approval: approvalResult.rows[0],
+      statusHistory: historyResult.rows[0],
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function createCustomerTransaction({
   companyId,
   creatorUserId,
@@ -101,7 +328,6 @@ async function createCustomerTransaction({
   try {
     await client.query('BEGIN');
 
-    // 1. Resolve CUSTOMER role.
     const roleResult = await client.query(
       `
         SELECT
@@ -123,7 +349,6 @@ async function createCustomerTransaction({
 
     const role = roleResult.rows[0];
 
-    // 2. Generate customer user number.
     const numberResult = await client.query(
       `
         SELECT next_business_number(
@@ -137,7 +362,6 @@ async function createCustomerTransaction({
 
     const userNumber = numberResult.rows[0].user_number;
 
-    // 3. Create customer user identity.
     const userResult = await client.query(
       `
         INSERT INTO users (
@@ -184,7 +408,6 @@ async function createCustomerTransaction({
 
     const user = userResult.rows[0];
 
-    // 4. Create user profile.
     const profileResult = await client.query(
       `
         INSERT INTO user_profiles (
@@ -227,7 +450,6 @@ async function createCustomerTransaction({
       ]
     );
 
-    // 5. Create next of kin.
     const nextOfKinResult = await client.query(
       `
         INSERT INTO next_of_kin (
@@ -266,7 +488,6 @@ async function createCustomerTransaction({
       ]
     );
 
-    // 6. Assign CUSTOMER role.
     const userRoleResult = await client.query(
       `
         INSERT INTO user_roles (
@@ -300,7 +521,6 @@ async function createCustomerTransaction({
       ]
     );
 
-    // 7. Generate customer number.
     const customerNumberResult = await client.query(
       `
         SELECT next_business_number(
@@ -315,7 +535,6 @@ async function createCustomerTransaction({
     const customerNumber =
       customerNumberResult.rows[0].customer_number;
 
-    // 8. Create customer.
     const customerResult = await client.query(
       `
         INSERT INTO customers (
@@ -346,7 +565,6 @@ async function createCustomerTransaction({
 
     const customer = customerResult.rows[0];
 
-    // 9. Create customer assignment.
     const assignmentResult = await client.query(
       `
         INSERT INTO customer_assignments (
@@ -378,7 +596,6 @@ async function createCustomerTransaction({
       ]
     );
 
-    // 10. Create approval request.
     const approvalResult = await client.query(
       `
         INSERT INTO approval_records (
@@ -435,5 +652,7 @@ module.exports = {
   findUserByEmailOrPhone,
   getRoleByName,
   getActiveAgentAssignment,
+  findCustomerById,
+  approveCustomerTransaction,
   createCustomerTransaction,
 };

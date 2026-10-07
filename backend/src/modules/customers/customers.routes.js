@@ -18,4 +18,15 @@ router.post(
   customersController.createCustomer
 );
 
+router.post(
+  '/:customerId/approve',
+  authenticate,
+  requirePermission('customer.approve', {
+    resourceType: 'CUSTOMER',
+    resourceId: 'customerId',
+    action: 'APPROVE',
+  }),
+  customersController.approveCustomer
+);
+
 module.exports = router;

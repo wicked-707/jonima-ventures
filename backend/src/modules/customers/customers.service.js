@@ -261,6 +261,89 @@ async function createCustomer({
   };
 }
 
+async function approveCustomer({
+  approverUserId,
+  companyId,
+  customerId,
+  reason,
+  notes,
+}) {
+  const allowed = await hasPermission(
+    approverUserId,
+    'customer.approve'
+  );
+
+  if (!allowed) {
+    const error = new Error(
+      'You do not have permission to approve customers'
+    );
+
+    error.statusCode = 403;
+    error.code = 'PERMISSION_DENIED';
+
+    throw error;
+  }
+
+  const targetCustomer =
+    await customersRepository.findCustomerById({
+      companyId,
+      customerId,
+    });
+
+  if (!targetCustomer) {
+    const error = new Error('Customer not found');
+
+    error.statusCode = 404;
+    error.code = 'CUSTOMER_NOT_FOUND';
+
+    throw error;
+  }
+
+  if (
+    targetCustomer.status !== 'PENDING' &&
+    targetCustomer.status !== 'UNDER_REVIEW'
+  ) {
+    const error = new Error(
+      `Customer cannot be approved from status ${targetCustomer.status}`
+    );
+
+    error.statusCode = 409;
+    error.code = 'INVALID_CUSTOMER_STATUS';
+
+    throw error;
+  }
+
+  const approverRoles = await getUserRoles(
+    approverUserId
+  );
+
+  const canApprove =
+    approverRoles.includes('OWNER') ||
+    approverRoles.includes('SUPERADMIN');
+
+  if (!canApprove) {
+    const error = new Error(
+      'Your role cannot approve customers'
+    );
+
+    error.statusCode = 403;
+    error.code = 'ROLE_APPROVAL_NOT_ALLOWED';
+
+    throw error;
+  }
+
+  return customersRepository.approveCustomerTransaction({
+    companyId,
+    customerId,
+    approverUserId,
+    reason,
+    notes,
+  });
+}
+
 module.exports = {
   createCustomer,
+  approveCustomer,
 };
+
+
