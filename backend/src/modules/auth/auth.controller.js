@@ -103,6 +103,7 @@ async function changePassword(req, res, next) {
       userId: req.auth.userId,
       currentPassword: req.body.currentPassword,
       newPassword: req.body.newPassword,
+      sessionId: req.auth.sessionId,
     });
 
     return res.status(200).json({

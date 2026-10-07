@@ -296,6 +296,7 @@ async function changePassword({
   userId,
   currentPassword,
   newPassword,
+  sessionId,
 }) {
   if (!currentPassword || !newPassword) {
     const error = new Error(
@@ -330,8 +331,7 @@ async function changePassword({
     throw error;
   }
 
-  const user =
-  await authRepository.findUserById(userId);
+  const user = await authRepository.findUserById(userId);
 
   if (!user) {
     const error = new Error('User not found');
@@ -362,11 +362,10 @@ async function changePassword({
     newPassword
   );
 
-  const updatedUser =
-    await authRepository.changePassword({
-      userId: user.id,
-      newPasswordHash,
-    });
+  const updatedUser = await authRepository.changePassword({
+    userId: user.id,
+    newPasswordHash,
+  });
 
   if (!updatedUser) {
     const error = new Error(
@@ -377,6 +376,13 @@ async function changePassword({
     error.code = 'PASSWORD_UPDATE_FAILED';
 
     throw error;
+  }
+
+  if (sessionId) {
+    await authRepository.revokeSession(
+      sessionId,
+      'PASSWORD_CHANGED'
+    );
   }
 
   return updatedUser;
