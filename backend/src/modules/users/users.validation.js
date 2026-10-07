@@ -126,6 +126,97 @@ function validateCreateUserPayload(body = {}) {
   };
 }
 
+function validateAssignUserPayload(body = {}) {
+  const errors = [];
+
+  if (
+    body.assignmentType === undefined ||
+    body.assignmentType === null ||
+    body.assignmentType === ''
+  ) {
+    errors.push('assignmentType is required');
+  } else {
+    const allowedAssignmentTypes = [
+      'REGIONAL_ADMIN',
+      'AGENT',
+      'CUSTOMER_SERVICE',
+      'OTHER',
+    ];
+
+    if (
+      !allowedAssignmentTypes.includes(
+        String(body.assignmentType).trim().toUpperCase()
+      )
+    ) {
+      errors.push(
+        `assignmentType must be one of: ${allowedAssignmentTypes.join(', ')}`
+      );
+    }
+  }
+
+  if (
+    body.regionId !== undefined &&
+    body.regionId !== null &&
+    body.regionId !== '' &&
+    typeof body.regionId !== 'string'
+  ) {
+    errors.push('regionId must be a string');
+  }
+
+  if (
+    body.locationId !== undefined &&
+    body.locationId !== null &&
+    body.locationId !== '' &&
+    typeof body.locationId !== 'string'
+  ) {
+    errors.push('locationId must be a string');
+  }
+
+  if (
+    body.supervisorUserId !== undefined &&
+    body.supervisorUserId !== null &&
+    body.supervisorUserId !== '' &&
+    typeof body.supervisorUserId !== 'string'
+  ) {
+    errors.push('supervisorUserId must be a string');
+  }
+
+  if (
+    body.effectiveFrom !== undefined &&
+    body.effectiveFrom !== null &&
+    body.effectiveFrom !== '' &&
+    Number.isNaN(Date.parse(body.effectiveFrom))
+  ) {
+    errors.push('effectiveFrom must be a valid date');
+  }
+
+  if (
+    body.effectiveUntil !== undefined &&
+    body.effectiveUntil !== null &&
+    body.effectiveUntil !== '' &&
+    Number.isNaN(Date.parse(body.effectiveUntil))
+  ) {
+    errors.push('effectiveUntil must be a valid date');
+  }
+
+  if (
+    body.effectiveFrom &&
+    body.effectiveUntil &&
+    Date.parse(body.effectiveUntil) <=
+      Date.parse(body.effectiveFrom)
+  ) {
+    errors.push(
+      'effectiveUntil must be later than effectiveFrom'
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 module.exports = {
   validateCreateUserPayload,
+  validateAssignUserPayload,
 };

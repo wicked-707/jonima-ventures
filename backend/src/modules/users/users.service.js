@@ -396,8 +396,85 @@ async function resetUserPassword({
   };
 }
 
+async function assignUser({
+  assignerUserId,
+  companyId,
+  userId,
+  payload,
+}) {
+  const allowed = await hasPermission(
+    assignerUserId,
+    'user.assign'
+  );
+
+  if (!allowed) {
+    const error = new Error(
+      'You do not have permission to assign users'
+    );
+
+    error.statusCode = 403;
+    error.code = 'PERMISSION_DENIED';
+
+    throw error;
+  }
+
+  const targetUser =
+    await usersRepository.findUserById({
+      companyId,
+      userId,
+    });
+
+  if (!targetUser) {
+    const error = new Error('User not found');
+
+    error.statusCode = 404;
+    error.code = 'USER_NOT_FOUND';
+
+    throw error;
+  }
+
+  const assignmentType = String(
+    payload.assignmentType
+  ).trim().toUpperCase();
+
+  const allowedAssignmentTypes = [
+    'REGIONAL_ADMIN',
+    'AGENT',
+    'CUSTOMER_SERVICE',
+    'OTHER',
+  ];
+
+  if (!allowedAssignmentTypes.includes(assignmentType)) {
+    const error = new Error(
+      `assignmentType must be one of: ${allowedAssignmentTypes.join(', ')}`
+    );
+
+    error.statusCode = 400;
+    error.code = 'INVALID_ASSIGNMENT_TYPE';
+
+    throw error;
+  }
+
+  const result =
+    await usersRepository.createUserAssignmentTransaction({
+      companyId,
+      userId,
+      assignedBy: assignerUserId,
+      regionId: payload.regionId,
+      locationId: payload.locationId,
+      supervisorUserId: payload.supervisorUserId,
+      assignmentType,
+      effectiveFrom: payload.effectiveFrom,
+      effectiveUntil: payload.effectiveUntil,
+      reason: payload.reason,
+    });
+
+  return result;
+}
+
 module.exports = {
   createUser,
   approveUser,
   resetUserPassword,
+  assignUser,
 };

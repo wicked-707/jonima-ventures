@@ -30,6 +30,17 @@ router.post(
 );
 
 router.post(
+  '/:userId/assignments',
+  authenticate,
+  requirePermission('user.assign', {
+    resourceType: 'USER',
+    resourceId: 'userId',
+    action: 'ASSIGN',
+  }),
+  usersController.assignUser
+);
+
+router.post(
   '/:userId/reset-password',
   authenticate,
   requirePermission('user.activate', {

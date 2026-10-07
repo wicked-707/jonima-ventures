@@ -567,6 +567,114 @@ async function resetUserPassword({
   return result.rows[0] || null;
 }
 
+async function createUserAssignmentTransaction({
+  companyId,
+  userId,
+  assignedBy,
+  regionId,
+  locationId,
+  supervisorUserId,
+  assignmentType,
+  effectiveFrom,
+  effectiveUntil,
+  reason,
+}) {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const userResult = await client.query(
+      `
+        SELECT
+          id,
+          company_id,
+          user_number,
+          status
+        FROM users
+        WHERE id = $1
+          AND company_id = $2
+        FOR UPDATE
+      `,
+      [userId, companyId]
+    );
+
+    const user = userResult.rows[0];
+
+    if (!user) {
+      const error = new Error('User not found');
+      error.statusCode = 404;
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+
+    const assignmentResult = await client.query(
+      `
+        INSERT INTO user_assignments (
+          user_id,
+          region_id,
+          location_id,
+          supervisor_user_id,
+          assigned_by,
+          assignment_type,
+          status,
+          effective_from,
+          effective_until,
+          reason
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          'ACTIVE',
+          COALESCE($7, NOW()),
+          $8,
+          $9
+        )
+        RETURNING
+          id,
+          user_id,
+          region_id,
+          location_id,
+          supervisor_user_id,
+          assigned_by,
+          assignment_type,
+          status,
+          effective_from,
+          effective_until,
+          reason,
+          created_at
+      `,
+      [
+        userId,
+        regionId || null,
+        locationId || null,
+        supervisorUserId || null,
+        assignedBy,
+        assignmentType,
+        effectiveFrom || null,
+        effectiveUntil || null,
+        reason || null,
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      user,
+      assignment: assignmentResult.rows[0],
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   createUserTransaction,
   findUserByEmailOrPhone,
@@ -576,4 +684,6 @@ module.exports = {
   approveUserTransaction,
   getUserRolesAndPermissions,
   resetUserPassword,
+  createUserAssignmentTransaction,
+  
 };

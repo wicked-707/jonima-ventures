@@ -1,5 +1,6 @@
 const {
   validateCreateUserPayload,
+  validateAssignUserPayload,
 } = require('./users.validation');
 
 const usersService = require('./users.service');
@@ -94,9 +95,47 @@ async function resetUserPassword(req, res, next) {
   }
 }
 
+async function assignUser(req, res, next) {
+  try {
+    const validation =
+      validateAssignUserPayload(req.body);
+
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validation.errors,
+      });
+    }
+
+    if (!req.auth?.userId || !req.auth?.companyId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const result = await usersService.assignUser({
+      assignerUserId: req.auth.userId,
+      companyId: req.auth.companyId,
+      userId: req.params.userId,
+      payload: req.body,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'User assignment created successfully',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createUser,
   approveUser,
   resetUserPassword,
+  assignUser,
 };
 
