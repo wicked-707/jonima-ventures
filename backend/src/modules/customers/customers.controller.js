@@ -106,8 +106,27 @@ async function approveCustomer(req, res, next) {
   }
 }
 
+
+async function getMyKycOverview(req, res, next) {
+  try {
+    const overview =
+      await customersService.getMyKycOverview({
+        userId: req.auth.userId,
+        companyId: req.auth.companyId,
+      });
+
+    return res.status(200).json({
+      success: true,
+      data: overview,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createCustomer,
   approveCustomer,
   getMyCustomerProfile,
+  getMyKycOverview,
 };

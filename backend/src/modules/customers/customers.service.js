@@ -104,7 +104,7 @@ async function getMyCustomerProfile({
       dateOfBirth: customer.date_of_birth,
       gender: customer.gender,
       nationalId: customer.national_id
-  ? `••••${String(customer.national_id).slice(-4)}`
+  ? `****${String(customer.national_id).slice(-4)}`
   : null,
       county: customer.county,
       subCounty: customer.sub_county,
@@ -418,10 +418,68 @@ async function approveCustomer({
   });
 }
 
+
+async function getMyKycOverview({ userId, companyId }) {
+  const overview =
+    await customersRepository.findMyKycOverview({
+      userId,
+      companyId,
+    });
+
+  if (!overview) {
+    const error = new Error('Customer profile not found');
+    error.statusCode = 404;
+    error.code = 'CUSTOMER_NOT_FOUND';
+    throw error;
+  }
+
+  const requiredDocumentTypes = [
+    'PASSPORT_PHOTO',
+    'ID_FRONT',
+    'ID_BACK',
+  ];
+
+  const activeDocuments = overview.documents.filter(
+    (document) => document.status !== 'REPLACED'
+  );
+
+  const missingRequiredDocumentTypes =
+    requiredDocumentTypes.filter(
+      (type) =>
+        !activeDocuments.some(
+          (document) => document.document_type === type
+        )
+    );
+
+  const formatDocument = (document) => ({
+    documentType: document.document_type,
+    status: document.status,
+    rejectionReason: document.rejection_reason,
+    uploadedAt: document.uploaded_at,
+    verifiedAt: document.verified_at,
+  });
+
+  return {
+    customer: {
+      customerNumber: overview.customer.customer_number,
+      status: overview.customer.customer_status,
+      kycStatus: overview.customer.kyc_status,
+      createdAt: overview.customer.created_at,
+      updatedAt: overview.customer.updated_at,
+    },
+    requiredDocumentTypes,
+    missingRequiredDocumentTypes,
+    documents: overview.documents.map(formatDocument),
+    nextOfKinDocuments:
+      overview.nextOfKinDocuments.map(formatDocument),
+  };
+}
+
 module.exports = {
   createCustomer,
   approveCustomer,
   getMyCustomerProfile,
+  getMyKycOverview,
 };
 
 

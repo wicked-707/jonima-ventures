@@ -718,12 +718,77 @@ async function createCustomerTransaction({
   }
 }
 
+
+async function findMyKycOverview({ companyId, userId }) {
+  const customerResult = await pool.query(
+    `
+      SELECT
+        c.id AS customer_id,
+        c.customer_number,
+        c.status AS customer_status,
+        c.kyc_status,
+        c.created_at,
+        c.updated_at
+      FROM customers c
+      WHERE c.company_id = $1
+        AND c.user_id = $2
+      LIMIT 1
+    `,
+    [companyId, userId]
+  );
+
+  if (customerResult.rowCount === 0) {
+    return null;
+  }
+
+  const customer = customerResult.rows[0];
+
+  const documentsResult = await pool.query(
+    `
+      SELECT
+        document_type,
+        status,
+        rejection_reason,
+        uploaded_at,
+        verified_at
+      FROM user_documents
+      WHERE user_id = $1
+      ORDER BY uploaded_at DESC
+    `,
+    [userId]
+  );
+
+  const nextOfKinDocumentsResult = await pool.query(
+    `
+      SELECT
+        nkd.document_type,
+        nkd.status,
+        nkd.rejection_reason,
+        nkd.uploaded_at,
+        nkd.verified_at
+      FROM next_of_kin_documents nkd
+      INNER JOIN next_of_kin nok
+        ON nok.id = nkd.next_of_kin_id
+      WHERE nok.user_id = $1
+      ORDER BY nkd.uploaded_at DESC
+    `,
+    [userId]
+  );
+
+  return {
+    customer,
+    documents: documentsResult.rows,
+    nextOfKinDocuments: nextOfKinDocumentsResult.rows,
+  };
+}
+
 module.exports = {
   findUserByEmailOrPhone,
   getRoleByName,
   getActiveAgentAssignment,
   findCustomerById,
   findCustomerByUserId,
+  findMyKycOverview,
   approveCustomerTransaction,
   createCustomerTransaction,
 };

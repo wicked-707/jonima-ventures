@@ -25,6 +25,18 @@ router.get(
   customersController.getMyCustomerProfile
 );
 
+
+router.get(
+  '/me/kyc',
+  authenticate,
+  requirePasswordChangeCompleted,
+  requirePermission('customer.view', {
+    resourceType: 'CUSTOMER',
+    action: 'VIEW_KYC',
+  }),
+  customersController.getMyKycOverview
+);
+
 router.post(
   '/',
   authenticate,
