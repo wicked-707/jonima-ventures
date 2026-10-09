@@ -1,6 +1,8 @@
 const express = require('express');
 
 const customersController = require('./customers.controller');
+const kycDocumentsController = require('./kycDocuments.controller');
+const { kycUpload } = require('../../middleware/kycUpload');
 
 const { authenticate } = require('../../middleware/auth');
 
@@ -26,6 +28,17 @@ router.get(
 );
 
 
+router.post(
+  '/me/kyc/documents',
+  authenticate,
+  requirePasswordChangeCompleted,
+  requirePermission('customer.view', {
+    resourceType: 'CUSTOMER',
+    action: 'UPLOAD_KYC_DOCUMENT',
+  }),
+  kycUpload,
+  kycDocumentsController.uploadMyKycDocument
+);
 router.get(
   '/me/kyc',
   authenticate,
