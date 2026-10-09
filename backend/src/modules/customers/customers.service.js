@@ -56,6 +56,83 @@ function generateTemporaryPassword() {
   return crypto.randomBytes(9).toString('base64url');
 }
 
+async function getMyCustomerProfile({
+  userId,
+  companyId,
+}) {
+  const customer =
+    await customersRepository.findCustomerByUserId({
+      companyId,
+      userId,
+    });
+
+  if (!customer) {
+    const error = new Error(
+      'Customer profile not found'
+    );
+
+    error.statusCode = 404;
+    error.code = 'CUSTOMER_NOT_FOUND';
+
+    throw error;
+  }
+
+  return {
+    customer: {
+      id: customer.id,
+      customerNumber: customer.customer_number,
+      status: customer.status,
+      kycStatus: customer.kyc_status,
+      createdAt: customer.created_at,
+      updatedAt: customer.updated_at,
+    },
+
+    user: {
+      id: customer.user_id,
+      userNumber: customer.user_number,
+      email: customer.email,
+      phone: customer.phone,
+      status: customer.user_status,
+      mustChangePassword:
+        customer.must_change_password,
+    },
+
+    profile: {
+      firstName: customer.first_name,
+      middleName: customer.middle_name,
+      lastName: customer.last_name,
+      dateOfBirth: customer.date_of_birth,
+      gender: customer.gender,
+      nationalId: customer.national_id
+  ? `••••${String(customer.national_id).slice(-4)}`
+  : null,
+      county: customer.county,
+      subCounty: customer.sub_county,
+      town: customer.town,
+      area: customer.area,
+      residentialAddress:
+        customer.residential_address,
+      landmark: customer.landmark,
+      serviceLocation:
+        customer.service_location,
+    },
+
+    assignment: customer.assignment_id
+      ? {
+          id: customer.assignment_id,
+          regionId: customer.region_id,
+          regionName: customer.region_name,
+          agentUserId: customer.agent_user_id,
+          status: customer.assignment_status,
+          effectiveFrom:
+            customer.effective_from,
+          effectiveUntil:
+            customer.effective_until,
+        }
+      : null,
+  };
+}
+
 async function createCustomer({
   creatorUserId,
   companyId,
@@ -344,6 +421,7 @@ async function approveCustomer({
 module.exports = {
   createCustomer,
   approveCustomer,
+  getMyCustomerProfile,
 };
 
 

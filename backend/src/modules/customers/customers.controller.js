@@ -40,6 +40,35 @@ async function createCustomer(req, res, next) {
   }
 }
 
+async function getMyCustomerProfile(
+  req,
+  res,
+  next
+) {
+  try {
+    if (!req.auth) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const result =
+      await customersService.getMyCustomerProfile({
+        userId: req.auth.userId,
+        companyId: req.auth.companyId,
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Customer profile retrieved successfully',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function approveCustomer(req, res, next) {
   try {
     if (!req.auth) {
@@ -80,4 +109,5 @@ async function approveCustomer(req, res, next) {
 module.exports = {
   createCustomer,
   approveCustomer,
+  getMyCustomerProfile,
 };

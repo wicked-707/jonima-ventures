@@ -14,6 +14,17 @@ const {
 
 const router = express.Router();
 
+router.get(
+  '/me',
+  authenticate,
+  requirePasswordChangeCompleted,
+  requirePermission('customer.view', {
+    resourceType: 'CUSTOMER',
+    action: 'VIEW',
+  }),
+  customersController.getMyCustomerProfile
+);
+
 router.post(
   '/',
   authenticate,

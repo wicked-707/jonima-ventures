@@ -126,6 +126,76 @@ async function findCustomerById({
   return result.rows[0] || null;
 }
 
+async function findCustomerByUserId({
+  companyId,
+  userId,
+}) {
+  const result = await pool.query(
+    `
+      SELECT
+        c.id,
+        c.company_id,
+        c.customer_number,
+        c.status,
+        c.kyc_status,
+        c.created_at,
+        c.updated_at,
+
+        u.id AS user_id,
+        u.user_number,
+        u.email,
+        u.phone,
+        u.status AS user_status,
+        u.must_change_password,
+
+        p.first_name,
+        p.middle_name,
+        p.last_name,
+        p.date_of_birth,
+        p.gender,
+        p.national_id,
+        p.county,
+        p.sub_county,
+        p.town,
+        p.area,
+        p.residential_address,
+        p.landmark,
+        p.service_location,
+
+        ca.id AS assignment_id,
+        ca.region_id,
+        ca.agent_user_id,
+        ca.status AS assignment_status,
+        ca.effective_from,
+        ca.effective_until,
+
+        r.name AS region_name
+      FROM customers c
+      INNER JOIN users u
+        ON u.id = c.user_id
+      INNER JOIN user_profiles p
+        ON p.user_id = u.id
+      LEFT JOIN customer_assignments ca
+        ON ca.customer_id = c.id
+        AND ca.status = 'ACTIVE'
+        AND ca.effective_from <= NOW()
+        AND (
+          ca.effective_until IS NULL
+          OR ca.effective_until > NOW()
+        )
+      LEFT JOIN regions r
+        ON r.id = ca.region_id
+      WHERE c.company_id = $1
+        AND c.user_id = $2
+      ORDER BY ca.effective_from DESC NULLS LAST
+      LIMIT 1
+    `,
+    [companyId, userId]
+  );
+
+  return result.rows[0] || null;
+}
+
 async function approveCustomerTransaction({
   companyId,
   customerId,
@@ -653,6 +723,7 @@ module.exports = {
   getRoleByName,
   getActiveAgentAssignment,
   findCustomerById,
+  findCustomerByUserId,
   approveCustomerTransaction,
   createCustomerTransaction,
 };
