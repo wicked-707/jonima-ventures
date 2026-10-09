@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
+const sharp = require('sharp');
 
 const kycDocumentsRepository = require('./kycDocuments.repository');
 
@@ -21,34 +22,67 @@ function createError(message, statusCode, code) {
   return error;
 }
 
-function detectImage(buffer) {
-  if (
-    buffer.length >= 3 &&
-    buffer[0] === 0xff &&
-    buffer[1] === 0xd8 &&
-    buffer[2] === 0xff
-  ) {
-    return { mimeType: 'image/jpeg', extension: 'jpg' };
-  }
 
-  if (
-    buffer.length >= 8 &&
-    buffer.subarray(0, 8).equals(
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    )
-  ) {
-    return { mimeType: 'image/png', extension: 'png' };
-  }
+async function normalizeImage(buffer) {
+  const supportedFormats = new Set(['jpeg', 'png', 'webp']);
 
-  if (
-    buffer.length >= 12 &&
-    buffer.toString('ascii', 0, 4) === 'RIFF' &&
-    buffer.toString('ascii', 8, 12) === 'WEBP'
-  ) {
-    return { mimeType: 'image/webp', extension: 'webp' };
-  }
+  try {
+    const image = sharp(buffer, {
+      limitInputPixels: 40_000_000,
+      failOn: 'error',
+    });
 
-  return null;
+    const metadata = await image.metadata();
+
+    if (
+      !supportedFormats.has(metadata.format) ||
+      !metadata.width ||
+      !metadata.height ||
+      metadata.width * metadata.height > 40_000_000
+    ) {
+      throw new Error('Unsupported image format or dimensions');
+    }
+
+    const normalizedBuffer = await image
+      .rotate()
+      .resize({
+        width: 3000,
+        height: 3000,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({
+        quality: 85,
+        mozjpeg: true,
+      })
+      .toBuffer();
+
+    if (normalizedBuffer.length > 5 * 1024 * 1024) {
+      const error = new Error(
+        'Processed image exceeds the 5 MB storage limit'
+      );
+      error.statusCode = 413;
+      error.code = 'PROCESSED_FILE_TOO_LARGE';
+      throw error;
+    }
+
+    return {
+      buffer: normalizedBuffer,
+      mimeType: 'image/jpeg',
+      extension: 'jpg',
+    };
+  } catch (error) {
+    if (error.statusCode === 413) {
+      throw error;
+    }
+
+    const validationError = new Error(
+      'Invalid or unsupported image. Upload a valid JPEG, PNG, or WebP image.'
+    );
+    validationError.statusCode = 400;
+    validationError.code = 'INVALID_FILE_CONTENT';
+    throw validationError;
+  }
 }
 
 async function uploadMyKycDocument({
@@ -73,15 +107,7 @@ async function uploadMyKycDocument({
     );
   }
 
-  const detectedImage = detectImage(file.buffer);
-
-  if (!detectedImage) {
-    throw createError(
-      'Unsupported image content. Upload a valid JPEG, PNG, or WebP image.',
-      400,
-      'INVALID_FILE_CONTENT'
-    );
-  }
+  const normalizedImage = await normalizeImage(file.buffer);
 
   const storageRoot = path.resolve(
     process.env.KYC_STORAGE_DIR ||
@@ -89,7 +115,7 @@ async function uploadMyKycDocument({
   );
 
   const documentId = crypto.randomUUID();
-  const filename = `${documentId}.${detectedImage.extension}`;
+  const filename = `${documentId}.${normalizedImage.extension}`;
   const userDirectory = path.join(storageRoot, userId);
   const absolutePath = path.join(userDirectory, filename);
   const storagePath = `${userId}/${filename}`;
@@ -101,7 +127,7 @@ async function uploadMyKycDocument({
 
   const documentHash = crypto
     .createHash('sha256')
-    .update(file.buffer)
+    .update(normalizedImage.buffer)
     .digest('hex');
 
   let fileCreated = false;
@@ -114,8 +140,8 @@ async function uploadMyKycDocument({
         documentType,
         storagePath,
         originalFilename,
-        mimeType: detectedImage.mimeType,
-        fileSizeBytes: file.buffer.length,
+        mimeType: normalizedImage.mimeType,
+        fileSizeBytes: normalizedImage.buffer.length,
         documentHash,
         persistFile: async () => {
           await fs.mkdir(userDirectory, {
@@ -127,7 +153,7 @@ async function uploadMyKycDocument({
           fileCreated = true;
 
           try {
-            await fileHandle.writeFile(file.buffer);
+            await fileHandle.writeFile(normalizedImage.buffer);
           } finally {
             await fileHandle.close();
           }
